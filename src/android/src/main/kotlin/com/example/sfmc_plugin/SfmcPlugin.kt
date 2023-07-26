@@ -9,6 +9,21 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import android.util.Log
+import java.util.*
+import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
+import android.net.Uri
+import com.salesforce.marketingcloud.MCLogListener
+import com.salesforce.marketingcloud.MarketingCloudConfig
+import com.salesforce.marketingcloud.messages.iam.InAppMessage
+import com.salesforce.marketingcloud.messages.iam.InAppMessageManager
+import com.salesforce.marketingcloud.sfmcsdk.*
+import com.salesforce.marketingcloud.notifications.NotificationCustomizationOptions
+import com.salesforce.marketingcloud.notifications.NotificationManager
+
+const val LOG_TAG = "MCSDK"
 
 class SfmcPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var channel: MethodChannel
@@ -31,7 +46,7 @@ class SfmcPlugin : FlutterPlugin, MethodCallHandler {
                     initSDK()
                     result.success(true)
                 } catch(e: RuntimeException) {
-                    result.error(e.toString())
+                    result.error(e.toString(), e.toString(), e.toString())
                 }
             }
             "setContactKey" -> {
@@ -166,12 +181,11 @@ class SfmcPlugin : FlutterPlugin, MethodCallHandler {
     private fun initSDK() {
         // Initialize logging _before_ initializing the SDK to avoid losing valuable debugging information.
         if(BuildConfig.DEBUG) {
-            SFMCSdk.setLogging(LogLevel.DEBUG, LogListener.AndroidLogger())
             MarketingCloudSdk.setLogLevel(MCLogListener.VERBOSE)
             MarketingCloudSdk.setLogListener(MCLogListener.AndroidLogListener())
         }
 
-        SFMCSdk.configure(applicationContext as Application, SFMCSdkModuleConfig.build {
+        SFMCSdk.configure(context as Application, SFMCSdkModuleConfig.build {
             pushModuleConfig = MarketingCloudConfig.builder().apply {
                 setApplicationId(BuildConfig.MC_APP_ID)
                 setAccessToken(BuildConfig.MC_ACCESS_TOKEN)
@@ -179,10 +193,30 @@ class SfmcPlugin : FlutterPlugin, MethodCallHandler {
                 setMid(BuildConfig.MC_MID)
                 setMarketingCloudServerUrl(BuildConfig.MC_SERVER_URL)
                 setNotificationCustomizationOptions(
-                    NotificationCustomizationOptions.create(R.drawable.ic_notification_icon)
+                    NotificationCustomizationOptions.create { context, notificationMessage ->
+                        val builder = NotificationManager.getDefaultNotificationBuilder(
+                            context,
+                            notificationMessage,
+                            NotificationManager.createDefaultNotificationChannel(context),
+                            R.drawable.ic_notification
+                        )
+                        builder.setContentIntent(
+                            NotificationManager.redirectIntentForAnalytics(
+                                context,
+                                PendingIntent.getActivity(
+                                    context,
+                                    Random().nextInt(),
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(notificationMessage.url)),
+                                    PendingIntent.FLAG_IMMUTABLE
+                                ),
+                                notificationMessage,
+                                true,
+                            )
+                        )
+                    }
                 )
             // Other configuration options
-            }.build(applicationContext)
+            }.build(context)
         }) { initStatus ->
             when (initStatus.status) {
                 InitializationStatus.SUCCESS -> {
