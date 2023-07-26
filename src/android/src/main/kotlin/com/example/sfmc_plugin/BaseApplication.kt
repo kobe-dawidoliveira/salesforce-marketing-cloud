@@ -13,6 +13,9 @@ import com.salesforce.marketingcloud.UrlHandler
 import com.salesforce.marketingcloud.messages.iam.InAppMessage
 import com.salesforce.marketingcloud.messages.iam.InAppMessageManager
 import com.salesforce.marketingcloud.sfmcsdk.*
+import com.salesforce.marketingcloud.notifications.NotificationCustomizationOptions
+import com.salesforce.marketingcloud.notifications.NotificationManager
+import java.util.*
 
 const val LOG_TAG = "MCSDK"
 
@@ -35,13 +38,25 @@ abstract class BaseApplication : Application(), UrlHandler {
     }
 
     private fun initSDK() {
-        if (BuildConfig.DEBUG) {
+        // Initialize logging _before_ initializing the SDK to avoid losing valuable debugging information.
+        if(BuildConfig.DEBUG) {
+            SFMCSdk.setLogging(LogLevel.DEBUG, LogListener.AndroidLogger())
             MarketingCloudSdk.setLogLevel(MCLogListener.VERBOSE)
             MarketingCloudSdk.setLogListener(MCLogListener.AndroidLogListener())
         }
 
         SFMCSdk.configure(applicationContext as Application, SFMCSdkModuleConfig.build {
-            pushModuleConfig = configBuilder.build(applicationContext)
+            pushModuleConfig = MarketingCloudConfig.builder().apply {
+                setApplicationId(BuildConfig.MC_APP_ID)
+                setAccessToken(BuildConfig.MC_ACCESS_TOKEN)
+                setSenderId(BuildConfig.MC_SENDER_ID)
+                setMid(BuildConfig.MC_MID)
+                setMarketingCloudServerUrl(BuildConfig.MC_SERVER_URL)
+                setNotificationCustomizationOptions(
+                    NotificationCustomizationOptions.create(R.drawable.ic_notification_icon)
+                )
+            // Other configuration options
+            }.build(applicationContext)
         }) { initStatus ->
             when (initStatus.status) {
                 InitializationStatus.SUCCESS -> {
@@ -49,10 +64,7 @@ abstract class BaseApplication : Application(), UrlHandler {
                 }
                 InitializationStatus.FAILURE -> {
                     // Given that this app is used to show SDK functionality we will hard exit if SDK init outright failed.
-                    Log.e(
-                        LOG_TAG,
-                        "Marketing Cloud initialization failed. "
-                    )
+                    Log.e(LOG_TAG, "Marketing Cloud initialization failed.")
                     throw RuntimeException("Init failed")
                 }
             }
@@ -60,24 +72,7 @@ abstract class BaseApplication : Application(), UrlHandler {
 
         SFMCSdk.requestSdk { sdk ->
             sdk.mp {
-                it.inAppMessageManager.run {
-                    setInAppMessageListener(object : InAppMessageManager.EventListener {
-                        override fun shouldShowMessage(message: InAppMessage): Boolean {
-                            // This method will be called before an in app message is presented.  You can return `false` to
-                            // prevent the message from being displayed.  You can later use call `InAppMessageManager#showMessage`
-                            // to display the message if the message is still on the device and active.
-                            return true
-                        }
-
-                        override fun didShowMessage(message: InAppMessage) {
-                            Log.v(LOG_TAG, "${message.id} was displayed.")
-                        }
-
-                        override fun didCloseMessage(message: InAppMessage) {
-                            Log.v(LOG_TAG, "${message.id} was closed.")
-                        }
-                    })
-                }
+                it.pushMessageManager.enablePush()
             }
         }
     }

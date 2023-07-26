@@ -27,8 +27,12 @@ class SfmcPlugin : FlutterPlugin, MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "initialize" -> {
-                // It is already initialized in BaseApplication onCreate method
-                result.success(true)
+                try {
+                    initSDK()
+                    result.success(true)
+                } catch(e: RuntimeException) {
+                    result.error(e.toString())
+                }
             }
             "setContactKey" -> {
                 var isOperationSuccessful: Boolean
@@ -155,6 +159,46 @@ class SfmcPlugin : FlutterPlugin, MethodCallHandler {
             }
             else -> {
                 result.notImplemented()
+            }
+        }
+    }
+
+    private fun initSDK() {
+        // Initialize logging _before_ initializing the SDK to avoid losing valuable debugging information.
+        if(BuildConfig.DEBUG) {
+            SFMCSdk.setLogging(LogLevel.DEBUG, LogListener.AndroidLogger())
+            MarketingCloudSdk.setLogLevel(MCLogListener.VERBOSE)
+            MarketingCloudSdk.setLogListener(MCLogListener.AndroidLogListener())
+        }
+
+        SFMCSdk.configure(applicationContext as Application, SFMCSdkModuleConfig.build {
+            pushModuleConfig = MarketingCloudConfig.builder().apply {
+                setApplicationId(BuildConfig.MC_APP_ID)
+                setAccessToken(BuildConfig.MC_ACCESS_TOKEN)
+                setSenderId(BuildConfig.MC_SENDER_ID)
+                setMid(BuildConfig.MC_MID)
+                setMarketingCloudServerUrl(BuildConfig.MC_SERVER_URL)
+                setNotificationCustomizationOptions(
+                    NotificationCustomizationOptions.create(R.drawable.ic_notification_icon)
+                )
+            // Other configuration options
+            }.build(applicationContext)
+        }) { initStatus ->
+            when (initStatus.status) {
+                InitializationStatus.SUCCESS -> {
+                    Log.v(LOG_TAG, "Marketing Cloud initialization successful.")
+                }
+                InitializationStatus.FAILURE -> {
+                    // Given that this app is used to show SDK functionality we will hard exit if SDK init outright failed.
+                    Log.e(LOG_TAG, "Marketing Cloud initialization failed.")
+                    throw RuntimeException("Init failed")
+                }
+            }
+        }
+
+        SFMCSdk.requestSdk { sdk ->
+            sdk.mp {
+                it.pushMessageManager.enablePush()
             }
         }
     }
